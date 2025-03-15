@@ -22,67 +22,59 @@
 // ------------------ Instructions structures for hooking ------------------------ //
 #pragma pack(push, 1)
 /**
- * JMP_REL_SHORT - 8-bit Short Relative Jump (2 bytes total)
- * Used for jumping to nearby locations (±127 bytes)
+ * JMP_REL_SHORT - Short Relative Jump (2 bytes)
+ * Used for small jumps within ±127 bytes
  */
 typedef struct JMP_REL_SHORT
 {
     UINT8 Opcode;   // EB: Short jump opcode
-    UINT8 Operand;  // 8-bit signed displacement relative to the next instruction
-    // Range: -128 to +127 bytes from the end of this instruction
+    UINT8 Operand;  // 8-bit signed displacement
 } JMP_REL_SHORT, * PJMP_REL_SHORT;
 
 /**
- * JMP_REL - 32-bit Relative Jump (5 bytes total)
- * Standard jump used for most hook installations
+ * JMP_REL - Standard Relative Jump (5 bytes)
+ * Used for jumps within ±2GB
  */
 typedef struct JMP_REL
 {
     UINT8  Opcode;  // E9: Near relative jump opcode
-    UINT32 Operand; // 32-bit signed displacement relative to the next instruction
-    // Allows jumping ±2GB from the end of this instruction
-    // Formula: target_address - (current_address + 5)
+    UINT32 Operand; // 32-bit signed displacement
 } JMP_REL, * PJMP_REL;
 
 /**
- * CALL_REL - 32-bit Relative Call (5 bytes total)
- * Similar to JMP_REL but pushes return address to stack
+ * CALL_REL - Relative Call (5 bytes)
+ * Similar to JMP_REL but pushes return address
  */
 typedef struct CALL_REL
 {
     UINT8  Opcode;  // E8: Near relative call opcode
-    UINT32 Operand; // 32-bit signed displacement relative to the next instruction
-    // Used when you need to return to the calling location
-    // Formula: target_address - (current_address + 5)
+    UINT32 Operand; // 32-bit signed displacement
 } CALL_REL, * PCALL_REL;
 
 /**
- * JMP_ABS - 64-bit Indirect Absolute Jump (14 bytes total)
- * Used when target is beyond ±2GB range in 64-bit mode
+ * JMP_ABS - Absolute Indirect Jump (14 bytes)
+ * Used for 64-bit addressing without limitations
  */
 typedef struct JMP_ABS
 {
-    UINT8  opcode0; // FF: Group 5 opcode (includes indirect jump variants)
-    UINT8  opcode1; // 25: ModR/M byte specifying "JMP [RIP+disp32]" (absolute indirect)
-    UINT32 dummy;   // 00000000: 32-bit zero displacement (points to the address field below)
-    UINT64 address; // Absolute 64-bit destination address to jump to
-    // CPU will read this address and jump to it (memory indirect)
+    UINT8  opcode0; // FF: Indirect jump opcode
+    UINT8  opcode1; // 25: ModR/M for RIP-relative indirect
+    UINT32 dummy;   // 00000000: Zero displacement
+    UINT64 address; // 64-bit absolute target address
 } JMP_ABS, * PJMP_ABS;
 
 /**
- * CALL_ABS - 64-bit Indirect Absolute Call (16 bytes total)
- * Complex structure used for absolute calls in 64-bit mode
+ * CALL_ABS - Absolute Indirect Call (16 bytes)
+ * Complex instruction for calls with 64-bit addressing
  */
 typedef struct CALL_ABS
 {
-    UINT8  opcode0; // FF: Group 5 opcode (includes indirect call variants)
-    UINT8  opcode1; // 15: ModR/M byte specifying "CALL [RIP+disp32]" (absolute indirect)
-    UINT32 dummy0;  // 00000002: 32-bit displacement pointing to address field
-    UINT8  dummy1;  // EB: Short jump opcode (to skip over the address)
-    UINT8  dummy2;  // 08: Jump forward 8 bytes (skips over the address field)
-    // This ensures execution doesn't fall into the address data
-    UINT64 address; // Absolute 64-bit destination address for the call
-    // When called, first instruction reads this address and calls it
+    UINT8  opcode0; // FF: Indirect call opcode
+    UINT8  opcode1; // 15: ModR/M for RIP-relative indirect
+    UINT32 dummy0;  // 00000002: Points to address field
+    UINT8  dummy1;  // EB: Short jump to skip address data
+    UINT8  dummy2;  // 08: Jump 8 bytes forward
+    UINT64 address; // 64-bit absolute target address
 } CALL_ABS, * PCALL_ABS;
 
 /**
@@ -99,46 +91,69 @@ typedef struct JCC_REL
     // Formula: target_address - (current_address + 6)
 } JCC_REL, * PJCC_REL;
 
-// 64bit indirect absolute conditional jumps that x64 lacks.
-typedef struct _JCC_ABS
+/**
+ * JCC_ABS - Absolute Conditional Jump (16 bytes)
+ * Used to convert relative conditional jumps to absolute form
+ */
+typedef struct JCC_ABS
 {
-    UINT8  opcode;      // 7* 0E:         J** +16
-    UINT8  dummy0;
-    UINT8  dummy1;      // FF25 00000000: JMP [+6]
-    UINT8  dummy2;
-    UINT32 dummy3;
-    UINT64 address;     // Absolute destination address
-} JCC_ABS, *PJCC_ABS;
+    UINT8  opcode;  // 7x: Conditional jump opcode
+    UINT8  dummy0;  // 0E: Jump offset past absolute jump
+    UINT8  dummy1;  // FF: Indirect jump opcode
+    UINT8  dummy2;  // 25: ModR/M for RIP-relative indirect
+    UINT32 dummy3;  // 00000000: Zero displacement
+    UINT64 address; // 64-bit absolute target address
+} JCC_ABS, * PJCC_ABS;
 // ------------------ Instructions structures for hooking ------------------------ //
 
 #pragma pack(pop)
 
 // ------------------ Trampoline structures for hooking ------------------------ //
+/**
+ * TRAMPOLINE - Structure for hook management
+ * Contains all information needed for hooking a function
+ */
 typedef struct _TRAMPOLINE
 {
-	LPVOID pTarget; // Address of the target function
-	LPVOID pDetour; // Address of the detour function
-	LPVOID pTrampoline; // Buffer address for the trampoline and relay function
-	LPVOID pRelay; // Address for the relay function
-	BOOL HotPathArea;       // [Out] Should  use the hot patch area
-    UINT   nIP;             // [Out] Number of the instruction boundaries.
-	UINT8  oldIPs[8];       // [Out] Instruction boundaries of the target function.
-	UINT8  newIPs[8];       // [Out] Instruction boundaries of the trampoline function.
-} TRAMPOLINE, *PTRAMPOLINE;
+    LPVOID TargetFunction;   // Original function to be hooked
+    LPVOID DetourFunction;   // Hook implementation function
+    LPVOID TrampolineBuffer; // Buffer containing trampoline code
+    LPVOID RelayFunction;    // Entry point to the detour
+    BOOL   HotPatchable;     // Whether to use hot patching technique
+    UINT   InstructionCount; // Number of copied instructions
+    UINT8  OriginalOffsets[8];    // Source offsets of copied instructions
+    UINT8  TrampolineOffsets[8];  // Destination offsets in trampoline
+} TRAMPOLINE, * PTRAMPOLINE;
 // ------------------ Trampoline structures for hooking ------------------------ //
 
 
 // ------------------ Hook control structures for hooking ------------------------ //
+
+// TODO: Use Hook structure to control installed hooks
+//       And then be able to uninstall them.
 typedef struct _HOOK
 {
-	PVOID TargetFunction;
-	PVOID DetourFunction;
-	PTRAMPOLINE Trampoline;
-	BYTE OriginalBytes[32];
-	DWORD StolenBytesLen;
-	BOOL Installed;
-} HOOK, *PHOOK;
+    PVOID TargetFunction;    // Original function
+    PVOID DetourFunction;    // Hook implementation
+    PTRAMPOLINE Trampoline;  // Trampoline data
+    BYTE OriginalBytes[32];  // Backup of overwritten bytes
+    DWORD StolenBytesLen;    // Number of bytes overwritten
+    BOOL Installed;          // Whether hook is active
+} HOOK, * PHOOK;
 // ------------------ Hook control structures for hooking ------------------------ //
+
+
+/**
+ * CreateFunctionTrampoline - Creates a trampoline for the target function
+ *
+ * Analyzes the target function instructions and creates a trampoline that:
+ * 1. Executes the instructions that will be overwritten by the hook
+ * 2. Jumps back to the original function after the hook point
+ * 3. Contains a relay function to redirect execution to the detour
+ *
+ * @param pTrampInfo Trampoline information structure
+ * @return TRUE if trampoline created successfully, FALSE otherwise
+ */
 
 PVOID
 HookCreateTrampoline(
@@ -146,6 +161,16 @@ HookCreateTrampoline(
     PVOID pDetourFunction,
     BYTE* StolenBytes,
     SIZE_T CountBytes);
+
+
+/**
+ * HookCreateHook - Main function to install a function hook
+ *
+ * @param pTarget Function to be hooked
+ * @param pDetour Function that will be called instead
+ * @param ppOriginal Receives pointer to trampoline for calling original function
+ * @return TRUE if hook installed successfully, FALSE otherwise
+ */
 
 BOOL
 WINAPI
@@ -157,18 +182,23 @@ HookCreateHook(
 
 
 /*
-    Memory Layout :
-        +-----------------+     +-------------------+     +---------------- +
-        | Target Function |     | Trampoline Buffer  |    | Detour Function |
-        | (Original Code) |    | +-------------- +  |    | (Your Hook)     |
-        | +------------ + |    | | Copied       |   |    |                 |
-        | | JMP rel32   | -- + --->| | Instructions |    |    |             |
-        | +------------ + |    | +-------------- +  |    |                 |
-        | | Rest of     |  |    | | JMP to rest  |  |    |                |
-        | | Function    | < -+---- + -| of original |  |    |            |
-        | +------------ + |    | +-------------- +  |    |                 |
-        |                 |    | | Relay:       |   |    |                 |
-        |                 |    | | JMP absolute |-- + --->|              |
-        +---------------- - +| +-------------- + |      +---------------- +
-            +------------------ - +
+    Hook Process Overview:
+
+    1. Allocate memory close to target function
+    2. Analyze and copy enough instructions to create a trampoline
+    3. Place a jump at the original function start to redirect to hook
+    4. Return a pointer to the trampoline for calling the original functionality
+
+    Memory Layout:
+    +-----------------+     +-------------------+     +----------------+
+    | Target Function |     | Trampoline Buffer |     | Detour Function|
+    | (Original Code) |     |                   |     | (Your Hook)    |
+    | +-------------+ |     | +---------------+ |     |                |
+    | | JMP to relay| |     | | Copied instr. | |     |                |
+    | +-------------+ | --> | +---------------+ |     |                |
+    | | Rest of     | |     | | JMP to orig.  | | <---|                |
+    | | function    | | <-- | +---------------+ |     |                |
+    | +-------------+ |     | | Relay:        | |     |                |
+    |                 |     | | JMP to detour | | --> |                |
+    +-----------------+     +-------------------+     +----------------+
 */
