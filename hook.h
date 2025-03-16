@@ -18,6 +18,9 @@
 #define MEMORY_SLOT_SIZE 64
 #define TRAMPOLINE_MAX_SIZE (MEMORY_SLOT_SIZE - sizeof(JMP_ABS))
 
+#define PADD 0x00
+#define NOOP 0x90
+#define BP 0xCC
 
 // ------------------ Instructions structures for hooking ------------------------ //
 #pragma pack(push, 1)
@@ -130,18 +133,6 @@ typedef struct _TRAMPOLINE
 // ------------------ Hook control structures for hooking ------------------------ //
 
 // TODO: Use Hook structure to control installed hooks
-//       And then be able to uninstall them.
-typedef struct _HOOK
-{
-    PVOID TargetFunction;    // Original function
-    PVOID DetourFunction;    // Hook implementation
-    PTRAMPOLINE Trampoline;  // Trampoline data
-    BYTE OriginalBytes[32];  // Backup of overwritten bytes
-    DWORD StolenBytesLen;    // Number of bytes overwritten
-    BOOL Installed;          // Whether hook is active
-} HOOK, * PHOOK;
-// ------------------ Hook control structures for hooking ------------------------ //
-
 
 /**
  * CreateFunctionTrampoline - Creates a trampoline for the target function

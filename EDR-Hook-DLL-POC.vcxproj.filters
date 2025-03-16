@@ -74,8 +74,5 @@
     <ClCompile Include="memory.cpp">
       <Filter>Source Files\hook</Filter>
     </ClCompile>
-    <ClCompile Include="Tester.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
 </Project>

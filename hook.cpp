@@ -3,6 +3,7 @@
 #include "memory.h"
 #include <stdio.h>
 
+
 // Helper function to check if the code contains padding bytes (0x00, 0x90, 0xCC)
 static BOOL IsPaddingSequence(const LPBYTE pCode, SIZE_T length)
 {
@@ -11,7 +12,7 @@ static BOOL IsPaddingSequence(const LPBYTE pCode, SIZE_T length)
         return FALSE;
 
     // Check if the first byte is one of the known padding bytes
-    if (pCode[0] != 0x00 && pCode[0] != 0x90 && pCode[0] != 0xCC)
+    if (pCode[0] != PADD && pCode[0] != NOOP && pCode[0] != BP)
         return FALSE;
 
     // Padding should consist of repeated bytes of the same value
@@ -23,26 +24,27 @@ static BOOL IsPaddingSequence(const LPBYTE pCode, SIZE_T length)
     return TRUE;
 }
 
+
 BOOL
 HookCreateTrampoline(PTRAMPOLINE pTrampInfo)
 {
     // Structure for absolute JMP instruction (used for relay function)
     JMP_ABS absJumpTemplate = {
-        0xFF, 0x25, 0x00000000,   // JMP [RIP+6] (FF 25 00000000)
+        0xFF, 0x25, 0x00000000,   // JMP [RIP+0] (FF 25 00000000)
         0x0000000000000000ULL     // Target address placeholder
     };
 
     // Structure for CALL instruction to handle RIP-relative calls
     CALL_ABS absCallTemplate = {
-        0xFF, 0x15, 0x00000002,   // CALL [RIP+8] (FF 15 00000002)
+        0xFF, 0x15, 0x00000002,   // CALL [RIP+2] (FF 15 00000002)
         0xEB, 0x08,               // JMP +10 (EB 08) - Skip over the address data
         0x0000000000000000ULL     // Target address placeholder
     };
 
     // Structure for conditional jumps (converted to absolute form)
     JCC_ABS condJumpTemplate = {
-        0x70, 0x0E,               // Jcc +14 (7x 0E)
-        0xFF, 0x25, 0x00000000,   // JMP [RIP+6] (FF 25 00000000)
+        0x70, 0x0E,               // Jcc +14 (7x 0E) - Skips the jump
+        0xFF, 0x25, 0x00000000,   // JMP [RIP+0] (FF 25 00000000)
         0x0000000000000000ULL     // Target address placeholder
     };
 
@@ -178,12 +180,34 @@ HookCreateTrampoline(PTRAMPOLINE pTrampInfo)
             }
             else {
                 // Convert conditional jump to absolute form
+                // Conditional jumps are only relative, hens when stealing the bytes we cant just convert them to absolute jumps
+                // The solution found by (MinHook) is to convert conditional jump the following instruction combination:
+                // 1. Invert condition with jump to 'skip'
+                // 2. Absolute jump to the target
+                // 3. skip: position
+                // This achieve the same behaviour
+
                 UINT8 condition = ((instruction.opcode != 0x0F ? instruction.opcode : instruction.opcode2) & 0x0F);
                 // Invert condition code (e.g., JE becomes JNE) for our two-part jump
                 condJumpTemplate.opcode = 0x71 ^ condition;
                 condJumpTemplate.address = jumpTarget;
                 copySource = &condJumpTemplate;
                 bytesToCopy = sizeof(condJumpTemplate);
+
+                //Original Function(0x400000)                 Trampoline(0x500000)
+                //    +--------------------+                            +-------------------- +
+                //    | test eax, eax      |   --- copied to ----- >    | test eax, eax       |
+                //    +--------------------+                            +-------------------- +
+                //    | je   0x40000A      |   -- transformed to -->    | jne  SKIP_TARGET    |
+                //    +--------------------+                            +-------------------- +
+                //    | mov  ebx, 1        |   --- copied to ------>    | jmp[0x40000A]       | Absolute jump to
+                //    +-------------------- +                           +-------------------- + original target
+                //    | call some_function |   <--- returns to -----    | SKIP_TARGET:        |
+                //    +--------------------+                            +-------------------- +
+                //    | ret                |                            | mov  ebx, 1         |
+                //    +--------------------+                            +-------------------- +
+                //                                                      | jmp[0x400007]       | Return to original
+                //                                                      +---------------------+ after hook
             }
 
         }

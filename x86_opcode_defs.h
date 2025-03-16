@@ -11,6 +11,7 @@
 
 /* 2byte Opcode prefix */
 #define TWO_BYTE_OPCODE 0x0F
+
 /* 3byte Opcode prefix */
 #define THREE_BYTE_OPCODE_38 0x38
 #define THREE_BYTE_OPCODE_3A 0x3A
@@ -46,8 +47,6 @@
 #define F_PREFIX_SEG    0x20000000  /* Segment override prefix */
 #define F_PREFIX_REX    0x40000000  /* REX prefix (4x) */
 #define F_PREFIX_ANY    0x7F000000  /* Any prefix */
-
-
 /* ----------------------------------------------- Instruction flags ----------------------------------------------- */
 
 
